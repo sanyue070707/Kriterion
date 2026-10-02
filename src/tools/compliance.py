@@ -8,6 +8,7 @@ from langchain_core.tools import tool
 
 from src.db.connection import async_session_factory
 from src.db.repository import query_compliance_policies, query_trademarks
+from src.tools.provenance import dataset_url
 
 
 @tool
@@ -39,6 +40,7 @@ async def check_trademark(product_name: str, category: str, target_country: str)
         "conflicts_found": len(conflicts),
         "conflicts": conflicts,
         "risk_level": "high" if len(conflicts) > 0 else "low",
+        "source_url": dataset_url("trademarks", name=product_name, country=target_country),
         "fetch_time": datetime.now().isoformat(),
     }
 
@@ -64,6 +66,7 @@ async def check_certifications(category: str, source_country: str, target_countr
         "required_certifications": list(required_certs),
         "certification_count": len(required_certs),
         "policies_checked": len(policies),
+        "source_url": dataset_url("compliance_policies", category=category, target_country=target_country),
         "fetch_time": datetime.now().isoformat(),
     }
 
@@ -109,5 +112,6 @@ async def check_policy_compliance(product_name: str, category: str, target_count
         "block_count": len(blocks),
         "warning_count": len(warnings),
         "is_compliant": len(blocks) == 0,
+        "source_url": dataset_url("compliance_policies", category=category, target_country=target_country),
         "fetch_time": datetime.now().isoformat(),
     }

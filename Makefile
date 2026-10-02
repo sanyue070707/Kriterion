@@ -1,33 +1,26 @@
-.PHONY: help install dev up down seed demo test lint clean
+.PHONY: help install bootstrap demo web test lint clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install dependencies
+install: ## Install dependencies (no model downloads)
 	pip install -e ".[dev]"
 
-dev: ## Install with dev dependencies
-	pip install -e ".[dev]"
+bootstrap: ## Generate data, create DB, seed, build indexes, add demo candidates
+	python -m src bootstrap
 
-up: ## Start all services via Docker Compose
-	docker compose up -d
+demo: ## Run one evaluation and print the decision card
+	python -m src demo
 
-down: ## Stop all services
-	docker compose down
-
-seed: ## Generate mock data and seed database + Milvus
-	python scripts/generate_mock_data.py
-	python scripts/seed_database.py
-	python scripts/seed_vector_store.py
-
-demo: ## Run end-to-end demo
-	python scripts/run_demo.py
+web: ## Start the web UI (http://127.0.0.1:8000)
+	python -m src web
 
 test: ## Run tests
-	pytest tests/ -v
+	pytest -q
 
 lint: ## Run linter
-	ruff check src/ tests/
+	ruff check src/ tests/ scripts/
 
-clean: ## Clean generated files
-	rm -rf data/mock/*.json data/reference/*.json __pycache__ .pytest_cache .ruff_cache
+clean: ## Remove generated data, database, and caches
+	rm -f kriterion.db data/mock/*.json data/reference/*.json
+	rm -rf __pycache__ .pytest_cache .ruff_cache

@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
-from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import (
@@ -16,12 +14,10 @@ from src.db.models import (
     DecisionCard,
     EvidenceItem,
     MarketTrend,
-    ScreeningResult,
     SupplierQuote,
     Trademark,
     WorkflowRun,
 )
-
 
 # ── Candidates ──
 
@@ -42,18 +38,13 @@ async def list_candidates(session: AsyncSession, limit: int = 50, offset: int = 
     return list(result.scalars().all())
 
 
+async def count_candidates(session: AsyncSession) -> int:
+    result = await session.execute(select(func.count()).select_from(Candidate))
+    return result.scalar() or 0
+
+
 async def update_candidate_status(session: AsyncSession, candidate_id: uuid.UUID, status: str) -> None:
     await session.execute(update(Candidate).where(Candidate.id == candidate_id).values(status=status))
-
-
-# ── Screening ──
-
-
-async def create_screening_result(session: AsyncSession, **kwargs: Any) -> ScreeningResult:
-    obj = ScreeningResult(**kwargs)
-    session.add(obj)
-    await session.flush()
-    return obj
 
 
 # ── Market Trends ──
@@ -98,7 +89,10 @@ async def query_compliance_policies(
     target_country: str,
 ) -> list[CompliancePolicy]:
     result = await session.execute(
-        select(CompliancePolicy).where(CompliancePolicy.category == category, CompliancePolicy.target_country == target_country)
+        select(CompliancePolicy).where(
+            CompliancePolicy.category == category,
+            CompliancePolicy.target_country == target_country,
+        )
     )
     return list(result.scalars().all())
 
@@ -111,7 +105,9 @@ async def query_trademarks(
     name: str,
     country: str,
 ) -> list[Trademark]:
-    result = await session.execute(select(Trademark).where(Trademark.name.ilike(f"%{name}%"), Trademark.country == country))
+    result = await session.execute(
+        select(Trademark).where(Trademark.name.ilike(f"%{name}%"), Trademark.country == country)
+    )
     return list(result.scalars().all())
 
 
@@ -150,7 +146,9 @@ async def get_decision_card_by_run(session: AsyncSession, run_id: uuid.UUID) -> 
 
 
 async def list_decision_cards(session: AsyncSession, limit: int = 50, offset: int = 0) -> list[DecisionCard]:
-    result = await session.execute(select(DecisionCard).order_by(DecisionCard.decided_at.desc()).limit(limit).offset(offset))
+    result = await session.execute(
+        select(DecisionCard).order_by(DecisionCard.decided_at.desc()).limit(limit).offset(offset)
+    )
     return list(result.scalars().all())
 
 

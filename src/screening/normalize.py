@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-
 # Category alias mapping (variant → canonical)
 CATEGORY_ALIASES: dict[str, str] = {
     "beauty": "beauty",

@@ -26,8 +26,9 @@ ENV/
 data/mock/*.json
 data/reference/*.json
 
-# Docker
-docker/minio_data/
+# Local demo database (auto-created by bootstrap)
+kriterion.db
+kriterion.db-journal
 
 # OS
 .DS_Store

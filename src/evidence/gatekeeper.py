@@ -15,7 +15,6 @@ from typing import Sequence
 
 from src.evidence.models import EvidenceItem, GatekeeperReport
 
-
 # Default thresholds
 MIN_CONFIDENCE = Decimal("0.50")
 MIN_FRESHNESS_HOURS = 48  # data must be less than this old

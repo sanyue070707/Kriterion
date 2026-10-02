@@ -1,4 +1,4 @@
-"""Generate all mock data files for the Kriterion demo.
+"""Generate the sample dataset used by Kriterion.
 
 Produces:
   data/mock/candidates.json
@@ -14,8 +14,7 @@ from __future__ import annotations
 
 import json
 import random
-from datetime import datetime, timedelta
-from decimal import Decimal
+from datetime import datetime
 from pathlib import Path
 
 random.seed(42)
@@ -177,7 +176,10 @@ def generate_market_trends(n: int = 3000) -> list[dict]:
             noise = random.uniform(0.85, 1.15)
             volume = int(base_volume * noise * (1 + random.uniform(-0.05, 0.05)))
             growth = round(base_growth + random.uniform(-5, 5), 2)
-            keywords = random.sample(["viral", "trending", "new arrival", "best seller", "limited edition", "summer", "gift", "premium"], k=3)
+            keywords = random.sample(
+                ["viral", "trending", "new arrival", "best seller", "limited edition", "summer", "gift", "premium"],
+                k=3,
+            )
             records.append({
                 "category": cat,
                 "platform": platform,
@@ -223,24 +225,30 @@ def generate_supplier_quotes(n: int = 2000) -> list[dict]:
 
 def generate_compliance_policies(n: int = 500) -> list[dict]:
     records = []
+    # Most rules are informational/warnings; outright blocks are the exception,
+    # so not every (category, country) pair is blocked.
     rule_types = ["certification", "prohibition", "duty", "labeling", "ingredient"]
+    rule_weights = [40, 6, 22, 22, 10]
     severity_by_type = {
-        "certification": ["block", "warn"],
+        "certification": ["warn", "warn", "block"],
         "prohibition": ["block"],
         "duty": ["info", "warn"],
         "labeling": ["warn", "info"],
-        "ingredient": ["block", "warn"],
+        "ingredient": ["warn", "block"],
     }
     for _ in range(n):
         cat = random.choice(CATEGORIES)
         target = random.choice(TARGET_COUNTRIES)
-        rule = random.choice(rule_types)
+        rule = random.choices(rule_types, weights=rule_weights, k=1)[0]
         severity = random.choice(severity_by_type.get(rule, ["info"]))
         certs = CERT_REQUIREMENTS.get(target, {}).get(cat, [])
         duty = round(random.uniform(0, 15), 2) if rule == "duty" else None
         banned = []
         if rule == "ingredient" and cat == "beauty":
-            banned = random.sample(["hydroquinone", "mercury", "formaldehyde", "parabens", "phthalates"], k=random.randint(1, 2))
+            banned = random.sample(
+                ["hydroquinone", "mercury", "formaldehyde", "parabens", "phthalates"],
+                k=random.randint(1, 2),
+            )
         description = f"{rule.capitalize()} requirement for {cat} in {target}"
         if certs:
             description += f": requires {', '.join(certs)}"
@@ -273,7 +281,11 @@ def generate_historical_decisions(n: int = 200) -> list[dict]:
             "trend_momentum": round(random.uniform(3, 10), 1),
             "return_rate": round(random.uniform(3, 10), 1),
         }
-        outcome = random.choices(["success", "neutral", "failure"], weights=[50, 30, 20], k=1)[0] if verdict == "go" else "failure"
+        outcome = (
+            random.choices(["success", "neutral", "failure"], weights=[50, 30, 20], k=1)[0]
+            if verdict == "go"
+            else "failure"
+        )
         records.append({
             "candidate_snapshot": {
                 "name": f"Product-{random.randint(1000, 9999)}",
@@ -284,9 +296,16 @@ def generate_historical_decisions(n: int = 200) -> list[dict]:
             },
             "verdict": verdict,
             "scores": scores,
-            "key_evidence_summary": f"Market {'favorable' if scores['market_demand'] > 6 else 'weak'}, margin {'adequate' if scores['cost_margin'] > 6 else 'thin'}",
+            "key_evidence_summary": (
+                f"Market {'favorable' if scores['market_demand'] > 6 else 'weak'}, "
+                f"margin {'adequate' if scores['cost_margin'] > 6 else 'thin'}"
+            ),
             "outcome_actual": outcome,
-            "lessons_learned": f"{'High demand validated' if outcome == 'success' else 'Compliance gap missed' if outcome == 'failure' else 'Mixed signals'}",
+            "lessons_learned": (
+                "High demand validated" if outcome == "success"
+                else "Compliance gap missed" if outcome == "failure"
+                else "Mixed signals"
+            ),
         })
     return records
 
@@ -348,45 +367,45 @@ def main() -> None:
     candidates = generate_candidates(500)
     with open(MOCK_DIR / "candidates.json", "w", encoding="utf-8") as f:
         json.dump(candidates, f, indent=2, ensure_ascii=False)
-    print(f"  → {len(candidates)} candidates")
+    print(f"  -> {len(candidates)} candidates")
 
     print("Generating market trends...")
     trends = generate_market_trends(3000)
     with open(MOCK_DIR / "market_trends.json", "w", encoding="utf-8") as f:
         json.dump(trends, f, indent=2, ensure_ascii=False)
-    print(f"  → {len(trends)} trend records")
+    print(f"  -> {len(trends)} trend records")
 
     print("Generating supplier quotes...")
     quotes = generate_supplier_quotes(2000)
     with open(MOCK_DIR / "supplier_quotes.json", "w", encoding="utf-8") as f:
         json.dump(quotes, f, indent=2, ensure_ascii=False)
-    print(f"  → {len(quotes)} supplier quotes")
+    print(f"  -> {len(quotes)} supplier quotes")
 
     print("Generating compliance policies...")
     policies = generate_compliance_policies(500)
     with open(MOCK_DIR / "compliance_policies.json", "w", encoding="utf-8") as f:
         json.dump(policies, f, indent=2, ensure_ascii=False)
-    print(f"  → {len(policies)} compliance policies")
+    print(f"  -> {len(policies)} compliance policies")
 
     print("Generating historical decisions...")
     decisions = generate_historical_decisions(200)
     with open(MOCK_DIR / "historical_decisions.json", "w", encoding="utf-8") as f:
         json.dump(decisions, f, indent=2, ensure_ascii=False)
-    print(f"  → {len(decisions)} historical decisions")
+    print(f"  -> {len(decisions)} historical decisions")
 
     print("Generating trademark samples...")
     trademarks = generate_trademarks(100)
     with open(REF_DIR / "trademark_sample.json", "w", encoding="utf-8") as f:
         json.dump(trademarks, f, indent=2, ensure_ascii=False)
-    print(f"  → {len(trademarks)} trademarks")
+    print(f"  -> {len(trademarks)} trademarks")
 
     print("Generating certification matrix...")
     cert_matrix = generate_certification_matrix()
     with open(REF_DIR / "certification_matrix.json", "w", encoding="utf-8") as f:
         json.dump(cert_matrix, f, indent=2, ensure_ascii=False)
-    print("  → certification matrix")
+    print("  -> certification matrix")
 
-    print("\n✅ All mock data generated successfully!")
+    print("\n[OK] All sample data generated successfully!")
 
 
 if __name__ == "__main__":

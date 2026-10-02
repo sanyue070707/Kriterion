@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 
+from src.screening.funnel import screen_candidate
 from src.screening.normalize import (
     NormalizedCandidate,
     convert_to_usd,
@@ -10,7 +11,6 @@ from src.screening.normalize import (
     normalize_country,
     normalize_platform,
 )
-from src.screening.funnel import screen_candidate
 
 
 class TestNormalize:

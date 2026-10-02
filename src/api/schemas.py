@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel
 
 # ── Candidates ──
 
@@ -70,6 +68,7 @@ class DecisionCardResponse(BaseModel):
     id: str
     run_id: str
     candidate_id: str
+    candidate_name: str | None = None
     verdict: str
     scores: dict[str, float]
     overall_score: float
@@ -83,6 +82,36 @@ class DecisionCardResponse(BaseModel):
 class DecisionCardListResponse(BaseModel):
     items: list[DecisionCardResponse]
     total: int
+
+
+# ── Run detail (decision card + evidence + trace) ──
+
+class EvidenceItemResponse(BaseModel):
+    id: str
+    agent_type: str
+    dimension: str
+    claim: str
+    value: float | None
+    unit: str | None
+    source_tool: str
+    source_url: str | None
+    fetch_time: str | None
+    validity_until: str | None
+    confidence: float
+    raw_response: dict | None
+
+
+class RunDetailResponse(BaseModel):
+    run_id: str
+    status: str
+    candidate_id: str
+    candidate_name: str | None = None
+    screening_passed: bool | None = None
+    screening_reason: str | None = None
+    decision_card: DecisionCardResponse | None = None
+    evidence: list[EvidenceItemResponse] = []
+    gatekeeper_report: dict | None = None
+    tool_trace: list[dict] = []
 
 
 # ── Health ──

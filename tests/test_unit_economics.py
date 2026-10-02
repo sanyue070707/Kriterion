@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from src.decision.unit_economics import UnitEconomics, calculate_unit_economics
+from src.decision.unit_economics import calculate_unit_economics
 
 
 class TestUnitEconomics:

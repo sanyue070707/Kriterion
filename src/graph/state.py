@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+from operator import add
 from typing import Annotated, Literal, TypedDict
 
-from operator import add
-
-from src.evidence.models import EvidenceItem
 from src.decision.card import DecisionCard
+from src.evidence.models import EvidenceItem
 from src.screening.normalize import NormalizedCandidate
 
 
@@ -32,6 +31,7 @@ class WorkflowState(TypedDict, total=False):
     # ── Evidence collection (3 agents each append) ──
     evidence_items: Annotated[list[EvidenceItem], add]
     evidence_errors: Annotated[list[str], add]
+    tool_trace: Annotated[list[dict], add]
 
     # ── Gatekeeping ──
     gated_evidence: list[EvidenceItem]

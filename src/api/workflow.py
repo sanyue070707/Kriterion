@@ -9,8 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.schemas import WorkflowRunRequest, WorkflowRunResponse, WorkflowStatusResponse
-from src.db.connection import get_session
-from src.db.models import WorkflowRun
+from src.db.connection import async_session_factory, get_session
 from src.db.repository import (
     create_decision_card,
     create_evidence_item,
@@ -20,69 +19,31 @@ from src.db.repository import (
     update_candidate_status,
     update_workflow_run,
 )
+from src.service.evaluate import candidate_to_raw, run_evaluation
 
 router = APIRouter(prefix="/workflow", tags=["workflow"])
 
 
 async def _run_workflow_background(run_id_str: str, candidate_id_str: str) -> None:
     """Execute the evaluation workflow in the background and persist results."""
-    from src.graph.workflow import get_workflow
-
-    # Get candidate data from DB
-    from src.db.connection import async_session_factory
-
     async with async_session_factory() as session:
         candidate = await get_candidate(session, uuid.UUID(candidate_id_str))
         if not candidate:
             return
-
-        candidate_raw = {
-            "id": str(candidate.id),
-            "name": candidate.name,
-            "category": candidate.category,
-            "subcategory": candidate.subcategory,
-            "platform": candidate.platform,
-            "source_country": candidate.source_country,
-            "target_country": candidate.target_country,
-            "price_usd": float(candidate.price_usd) if candidate.price_usd else None,
-            "moq": candidate.moq,
-            "weight_kg": float(candidate.weight_kg) if candidate.weight_kg else None,
-            "metadata": candidate.metadata_,
-        }
-
-    # Run workflow
-    workflow = get_workflow()
-    initial_state = {
-        "run_id": run_id_str,
-        "candidate_id": candidate_id_str,
-        "candidate_raw": candidate_raw,
-        "evidence_items": [],
-        "evidence_errors": [],
-        "progress": [],
-    }
+        candidate_raw = candidate_to_raw(candidate)
 
     try:
-        result = await workflow.ainvoke(initial_state)
-    except Exception as e:
-        # Mark workflow as failed
+        result = await run_evaluation(candidate_raw, run_id_str)
+    except Exception as exc:  # noqa: BLE001 - surface the failure to the client
         async with async_session_factory() as session:
-            await update_workflow_run(session, uuid.UUID(run_id_str), status="failed", error_message=str(e)[:500])
+            await update_workflow_run(
+                session, uuid.UUID(run_id_str), status="failed", error_message=str(exc)[:500]
+            )
             await session.commit()
         return
 
-    # Persist results
     async with async_session_factory() as session:
-        # Update workflow status
-        await update_workflow_run(
-            session,
-            uuid.UUID(run_id_str),
-            status="completed",
-            current_node="output",
-            completed_at=datetime.now(),
-        )
-
-        # Persist evidence items
-        for item in result.get("gated_evidence", []):
+        for item in result.gated_evidence:
             await create_evidence_item(
                 session,
                 run_id=uuid.UUID(run_id_str),
@@ -100,13 +61,13 @@ async def _run_workflow_background(run_id_str: str, candidate_id_str: str) -> No
                 raw_response=item.raw_response,
             )
 
-        # Persist decision card
-        card = result.get("decision_card")
-        if card:
+        card = result.decision_card
+        if card is not None:
             await create_decision_card(
                 session,
                 run_id=uuid.UUID(run_id_str),
                 candidate_id=uuid.UUID(candidate_id_str),
+                candidate_name=card.candidate_name,
                 verdict=card.verdict,
                 scores=card.scores,
                 overall_score=card.overall_score,
@@ -114,12 +75,24 @@ async def _run_workflow_background(run_id_str: str, candidate_id_str: str) -> No
                 evidence_summary=card.evidence_summary,
                 risk_flags=card.risk_flags,
                 watch_reasons=card.watch_reasons,
+                gatekeeper_report=result.gatekeeper_report,
+                tool_trace=result.tool_trace,
             )
-
-            # Update candidate status
             new_status = "decided" if card.verdict in ("go", "no_go") else "watch"
             await update_candidate_status(session, uuid.UUID(candidate_id_str), new_status)
+        elif result.screening_passed is False:
+            await update_candidate_status(session, uuid.UUID(candidate_id_str), "rejected")
 
+        await update_workflow_run(
+            session,
+            uuid.UUID(run_id_str),
+            status="completed",
+            current_node="output",
+            progress=result.progress,
+            screening_passed=result.screening_passed,
+            screening_reason=result.screening_reason,
+            completed_at=datetime.now(),
+        )
         await session.commit()
 
 
@@ -130,12 +103,10 @@ async def run_workflow_endpoint(
     session: AsyncSession = Depends(get_session),
 ):
     """Trigger a product evaluation workflow for a candidate."""
-    # Validate candidate exists
     candidate = await get_candidate(session, uuid.UUID(body.candidate_id))
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    # Create workflow run
     run = await create_workflow_run(
         session,
         candidate_id=candidate.id,
@@ -146,14 +117,9 @@ async def run_workflow_endpoint(
     run_id = str(run.id)
     await session.commit()
 
-    # Schedule background execution
     background_tasks.add_task(_run_workflow_background, run_id, body.candidate_id)
 
-    return WorkflowRunResponse(
-        run_id=run_id,
-        candidate_id=body.candidate_id,
-        status="running",
-    )
+    return WorkflowRunResponse(run_id=run_id, candidate_id=body.candidate_id, status="running")
 
 
 @router.get("/{run_id}/status", response_model=WorkflowStatusResponse)

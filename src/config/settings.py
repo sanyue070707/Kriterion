@@ -1,4 +1,9 @@
-"""Application settings loaded from environment variables."""
+"""Application settings.
+
+Everything runs locally against SQLite: no external services, no API keys.
+"""
+
+from __future__ import annotations
 
 from pydantic_settings import BaseSettings
 
@@ -6,44 +11,22 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # ── Application ──
     app_name: str = "Kriterion"
-    debug: bool = True
+    debug: bool = False
 
     # ── LLM ──
-    llm_provider: str = "mock"  # "qwen" | "mock"
-    qwen_api_key: str = ""
-    qwen_model_name: str = "qwen-max"
+    # "mock" (default, no API key) | "real" (requires the `real-llm` extra)
+    llm_provider: str = "mock"
+    llm_api_key: str = ""
+    llm_model_name: str = ""
 
-    # ── Embedding & Reranker ──
-    embedding_provider: str = "mock"  # "local" | "mock"
-    reranker_provider: str = "mock"  # "local" | "mock"
-    bge_m3_model: str = "BAAI/bge-m3"
-    bge_reranker_model: str = "BAAI/bge-reranker-v2-m3"
-    embedding_dim: int = 1024  # BGE-M3 dense dimension
+    # ── Database (local SQLite, auto-created) ──
+    database_url: str = "sqlite+aiosqlite:///./kriterion.db"
 
-    # ── PostgreSQL ──
-    postgres_host: str = "localhost"
-    postgres_port: int = 5432
-    postgres_db: str = "kriterion"
-    postgres_user: str = "kriterion"
-    postgres_password: str = "kriterion_dev"
-    database_url: str = "postgresql+asyncpg://kriterion:kriterion_dev@localhost:5432/kriterion"
+    # ── Startup bootstrap ──
+    data_dir: str = "data"
+    auto_bootstrap: bool = True
 
-    # ── Redis ──
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    redis_url: str = "redis://localhost:6379/0"
-
-    # ── Milvus ──
-    milvus_host: str = "localhost"
-    milvus_port: int = 19530
-
-    # ── Langfuse ──
-    langfuse_public_key: str = ""
-    langfuse_secret_key: str = ""
-    langfuse_host: str = "https://cloud.langfuse.com"
-    langfuse_enabled: bool = False
-
-    # ── Screening defaults ──
+    # ── Screening defaults (methodology constants) ──
     min_viable_margin_tiktok: float = 15.0  # %
     min_viable_margin_shopee: float = 12.0  # %
     max_price_usd: float = 500.0

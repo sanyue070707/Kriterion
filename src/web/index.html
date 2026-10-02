@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kriterion — 多智能体选品决策系统</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --panel2: #273449; --line: #334155;
+    --fg: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8;
+    --go: #16a34a; --watch: #d97706; --nogo: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  header { padding: 20px 28px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 19px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  main { padding: 22px 28px 60px; max-width: 1180px; }
+  .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 18px; }
+  select, button { background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+                   border-radius: 7px; padding: 9px 12px; font-size: 14px; }
+  select { min-width: 420px; max-width: 100%; }
+  button { background: var(--accent); color: #05202e; border: none; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 11px;
+           padding: 18px 20px; margin-bottom: 16px; }
+  .panel h2 { margin: 0 0 14px; font-size: 15px; color: var(--muted); font-weight: 600;
+              text-transform: uppercase; letter-spacing: .05em; }
+  .badge { display: inline-block; padding: 4px 14px; border-radius: 999px; font-weight: 700;
+           font-size: 15px; color: #fff; }
+  .badge.go { background: var(--go); } .badge.watch { background: var(--watch); }
+  .badge.no_go { background: var(--nogo); }
+  .score { font-size: 26px; font-weight: 700; margin-left: 12px; }
+  .muted { color: var(--muted); }
+  .bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px 26px; }
+  .bar-row { display: grid; grid-template-columns: 130px 1fr 58px; align-items: center; gap: 10px; }
+  .bar-track { background: var(--panel2); height: 12px; border-radius: 6px; overflow: hidden; }
+  .bar-fill { height: 100%; background: linear-gradient(90deg, #0ea5e9, #22d3ee); }
+  .bar-row .w { color: var(--muted); font-size: 12px; text-align: right; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td, th { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+          padding: 3px 9px; font-size: 12px; color: var(--muted); }
+  .ev { border-top: 1px solid var(--line); padding: 10px 0; }
+  .ev:first-child { border-top: none; }
+  .ev .claim { margin-bottom: 4px; }
+  .ev .meta { color: var(--muted); font-size: 12px; word-break: break-all; }
+  .ev .meta a { color: var(--accent); text-decoration: none; }
+  .tag { display: inline-block; background: #0b3b4d; color: #7dd3fc; border-radius: 5px;
+         padding: 1px 7px; font-size: 11px; margin-right: 6px; }
+  .pill { display: inline-block; border-radius: 5px; padding: 1px 8px; font-size: 11px; margin-right: 6px; }
+  .pill.critical { background: #4c1d1d; color: #fca5a5; }
+  .pill.warning { background: #4a3312; color: #fcd34d; }
+  .step { display: inline-flex; align-items: center; gap: 7px; margin: 3px 12px 3px 0;
+          color: var(--muted); font-size: 13px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+  .step.done .dot { background: var(--go); } .step.active .dot { background: var(--accent); }
+  .step.rejected .dot, .step.failed .dot { background: var(--nogo); }
+  .note { background: #12263a; border-left: 3px solid var(--accent); padding: 10px 14px;
+          border-radius: 6px; color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Kriterion · 多智能体选品决策系统</h1>
+  <p>候选品 → 快筛 → 三方并行取证 → 证据守门 → 决策评审 → 决策卡 ｜ 全部本地运行，无需外部服务</p>
+</header>
+<main>
+  <div class="note">
+    选择一个候选品并运行。每个业务数字都绑定来源工具与原始地址，由证据守门节点逐条校验。
+  </div>
+
+  <div class="controls">
+    <select id="candidate"></select>
+    <button id="run">运行评估</button>
+    <span id="status" class="muted"></span>
+  </div>
+
+  <div class="panel" id="pipeline-panel" style="display:none">
+    <h2>评估流程</h2>
+    <div id="pipeline"></div>
+  </div>
+
+  <div id="result"></div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const API = "/api/v1";
+const AGENTS = { trend_demand: "趋势与需求", supply_cost: "货源与成本", compliance_risk: "合规与风险" };
+const DIMS = ["market_demand","competition","cost_margin","compliance_risk","supply_stability","trend_momentum","return_rate"];
+const WEIGHTS = { market_demand:.20, competition:.10, cost_margin:.25, compliance_risk:.20,
+                  supply_stability:.10, trend_momentum:.10, return_rate:.05 };
+
+async function loadCandidates() {
+  const r = await fetch(`${API}/candidates?limit=1000`);
+  const data = await r.json();
+  const sel = $("candidate");
+  sel.innerHTML = "";
+  // Sample-labelled candidates first, then the rest.
+  const items = data.items.slice().sort((a, b) => {
+    const da = a.name.startsWith("Sample:") ? 0 : 1, db = b.name.startsWith("Sample:") ? 0 : 1;
+    return da - db || a.name.localeCompare(b.name);
+  });
+  for (const c of items) {
+    const o = document.createElement("option");
+    o.value = c.id;
+    o.textContent = `${c.name} — ${c.category} / ${c.platform} / ${c.target_country} ($${c.price_usd ?? "?"})`;
+    sel.appendChild(o);
+  }
+}
+
+function renderPipeline(progress) {
+  $("pipeline-panel").style.display = "block";
+  const seen = {};
+  (progress || []).forEach(p => { seen[p.node] = p; });
+  const order = ["normalize","screen","collect_evidence_trend","collect_evidence_supply",
+                 "collect_evidence_compliance","gatekeep","review","output"];
+  const labels = { normalize:"归一化", screen:"快筛", collect_evidence_trend:"趋势取证",
+                   collect_evidence_supply:"成本取证", collect_evidence_compliance:"合规取证",
+                   gatekeep:"证据守门", review:"决策评审", output:"产出决策卡" };
+  $("pipeline").innerHTML = order.map(n => {
+    const p = seen[n];
+    const cls = p ? (["passed","completed"].includes(p.status) ? "done"
+                     : ["rejected","failed","error"].includes(p.status) ? "rejected" : "active") : "";
+    const detail = p && p.detail ? ` <span class="muted">(${p.detail})</span>` : "";
+    return `<span class="step ${cls}"><span class="dot"></span>${labels[n]}${detail}</span>`;
+  }).join("");
+}
+
+function barRow(dim, score) {
+  const pct = Math.max(0, Math.min(100, score * 10));
+  return `<div class="bar-row">
+    <span>${dim}</span>
+    <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+    <span class="w">${score} · w${WEIGHTS[dim]}</span>
+  </div>`;
+}
+
+function renderResult(detail) {
+  const card = detail.decision_card;
+  if (!card) {
+    $("result").innerHTML = `<div class="panel"><h2>结果</h2>
+      <p><b>未通过快筛</b>：${detail.screening_reason || "—"}</p>
+      <p class="muted">该候选品在快筛漏斗被拒绝，未进入取证与评审阶段（条件边直接终止）。</p></div>`;
+    return;
+  }
+  const ue = card.unit_economics;
+  const gk = detail.gatekeeper_report || {};
+  const risks = Object.entries(card.risk_flags || {});
+  const watches = Object.values(card.watch_reasons || {});
+  const byAgent = {};
+  (detail.evidence || []).forEach(e => (byAgent[e.agent_type] ||= []).push(e));
+
+  let html = `
+  <div class="panel">
+    <h2>决策卡</h2>
+    <div><span class="badge ${card.verdict}">${card.verdict.toUpperCase()}</span>
+      <span class="score">${card.overall_score}/10</span></div>
+    <p>${card.verdict_reason}</p>
+    ${card.evidence_summary?.narrative ? `<p class="muted">${card.evidence_summary.narrative}</p>` : ""}
+    ${risks.length ? `<div>${risks.map(([k,v]) => `<span class="pill ${v}">${v}</span>${k}`).join("<br>")}</div>` : ""}
+    ${watches.length ? `<p class="muted">待观察：${watches.join("；")}</p>` : ""}
+  </div>
+
+  <div class="panel">
+    <h2>七维打分</h2>
+    <div class="bars">${DIMS.map(d => barRow(d, card.scores[d] ?? 0)).join("")}</div>
+  </div>`;
+
+  if (ue) {
+    html += `<div class="panel"><h2>单位经济 (平台 P&amp;L)</h2><table>
+      <tr><th>售价</th><th>货品成本</th><th>头程</th><th>平台佣金</th><th>达人佣金</th><th>进口关税</th><th>净利</th></tr>
+      <tr><td>$${ue.retail_price}</td><td>$${ue.product_cost}</td><td>$${ue.freight_cost}</td>
+          <td>$${ue.platform_commission} (${ue.platform_commission_pct}%)</td>
+          <td>$${ue.creator_commission} (${ue.creator_commission_pct}%)</td>
+          <td>$${ue.import_duty} (${ue.import_duty_pct}%)</td>
+          <td><b>$${ue.net_profit}</b> (${ue.net_margin_pct}%)</td></tr></table></div>`;
+  }
+
+  html += `<div class="panel"><h2>证据守门</h2><div class="chips">
+    <span class="chip">校验通过 ${gk.valid_items ?? 0}</span>
+    <span class="chip">剔除无来源 ${gk.stripped_items ?? 0}</span>
+    <span class="chip">低置信 ${gk.low_confidence_items ?? 0}</span>
+    <span class="chip">数据过期 ${gk.expired_items ?? 0}</span>
+    <span class="chip">工具调用 ${(detail.tool_trace || []).length}</span>
+  </div></div>`;
+
+  for (const [agent, items] of Object.entries(byAgent)) {
+    html += `<div class="panel"><h2>${AGENTS[agent] || agent} · 证据（${items.length}）</h2>`;
+    items.forEach(e => {
+      const val = e.value === null ? "" : ` = <b>${e.value}</b>${e.unit ? " " + e.unit : ""}`;
+      const url = e.source_url ? `<a href="${e.source_url}" onclick="return false">${e.source_url}</a>` : "—";
+      html += `<div class="ev">
+        <div class="claim"><span class="tag">${e.dimension}</span>${e.claim}${val}</div>
+        <div class="meta">来源工具 <b>${e.source_tool}</b> ｜ 地址 ${url} ｜ 置信 ${e.confidence}
+          ｜ 抓取 ${(e.fetch_time||"").slice(0,19)} ｜ 有效期至 ${(e.validity_until||"—").slice(0,19)}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  $("result").innerHTML = html;
+}
+
+async function run() {
+  const candidateId = $("candidate").value;
+  if (!candidateId) return;
+  $("run").disabled = true;
+  $("result").innerHTML = "";
+  $("status").textContent = "运行中…";
+  try {
+    const r = await fetch(`${API}/workflow/run`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ candidate_id: candidateId }),
+    });
+    if (!r.ok) throw new Error(`启动失败 (${r.status})`);
+    const { run_id } = await r.json();
+
+    for (let i = 0; i < 120; i++) {
+      await new Promise(res => setTimeout(res, 400));
+      const s = await (await fetch(`${API}/workflow/${run_id}/status`)).json();
+      renderPipeline(s.progress);
+      if (s.status === "completed") break;
+      if (s.status === "failed") throw new Error(s.error_message || "工作流失败");
+    }
+    const detail = await (await fetch(`${API}/runs/${run_id}`)).json();
+    renderResult(detail);
+    $("status").textContent = "完成";
+  } catch (e) {
+    $("status").textContent = "";
+    $("result").innerHTML = `<div class="panel"><h2>错误</h2><p>${e.message}</p></div>`;
+  } finally {
+    $("run").disabled = false;
+  }
+}
+
+$("run").addEventListener("click", run);
+loadCandidates();
+</script>
+</body>
+</html>

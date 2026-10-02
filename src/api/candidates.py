@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.schemas import CandidateCreate, CandidateListResponse, CandidateResponse
 from src.db.connection import get_session
-from src.db.repository import create_candidate, get_candidate, list_candidates
+from src.db.repository import count_candidates, get_candidate, list_candidates
 
 router = APIRouter(prefix="/candidates", tags=["candidates"])
 
@@ -61,6 +60,7 @@ async def list_candidates_endpoint(
 ):
     """List product candidates."""
     candidates = await list_candidates(session, limit=limit, offset=offset)
+    total = await count_candidates(session)
     items = [
         CandidateResponse(
             id=str(c.id),
@@ -78,7 +78,7 @@ async def list_candidates_endpoint(
         )
         for c in candidates
     ]
-    return CandidateListResponse(items=items, total=len(items))
+    return CandidateListResponse(items=items, total=total)
 
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)

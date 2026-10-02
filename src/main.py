@@ -2,14 +2,35 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from src.api.router import api_router
 from src.api.schemas import HealthResponse
 from src.config.settings import settings
+
+WEB_DIR = Path(__file__).resolve().parent / "web"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Prepare data/schema/seed/indexes on startup (idempotent)."""
+    if settings.auto_bootstrap:
+        from src.bootstrap import bootstrap
+
+        await bootstrap(verbose=False)
+    else:
+        from src.db.connection import init_db
+
+        await init_db()
+    print(f"[Kriterion] ready - LLM provider: {settings.llm_provider}")
+    yield
+
 
 app = FastAPI(
     title=settings.app_name,
@@ -17,9 +38,9 @@ app = FastAPI(
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
-# CORS (allow all for demo)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,27 +49,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register API routes
 app.include_router(api_router)
 
 
+@app.get("/", include_in_schema=False)
+async def index() -> FileResponse:
+    """Serve the single-page web UI."""
+    return FileResponse(WEB_DIR / "index.html")
+
+
 @app.get("/health", response_model=HealthResponse)
-async def health_check():
+async def health_check() -> HealthResponse:
     """Health check endpoint."""
-    return HealthResponse(
-        status="healthy",
-        version="0.1.0",
-        timestamp=datetime.now().isoformat(),
-    )
-
-
-@app.on_event("startup")
-async def startup():
-    """Application startup — log configuration."""
-    print(f"🚀 {settings.app_name} v0.1.0 starting...")
-    print(f"   LLM Provider: {settings.llm_provider}")
-    print(f"   Embedding Provider: {settings.embedding_provider}")
-    print(f"   Reranker Provider: {settings.reranker_provider}")
-    print(f"   Database: {settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}")
-    print(f"   Redis: {settings.redis_host}:{settings.redis_port}")
-    print(f"   Milvus: {settings.milvus_host}:{settings.milvus_port}")
+    return HealthResponse(status="healthy", version="0.1.0", timestamp=datetime.now().isoformat())

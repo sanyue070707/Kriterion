@@ -37,6 +37,9 @@ class EvidenceDimension(str, Enum):
     IMPORT_DUTY = "import_duty"
     # Cross-cutting
     RETURN_RATE = "return_rate"
+    # Retrieval context — shown in the evidence ledger, not scored
+    POLICY_REFERENCE = "policy_reference"
+    HISTORICAL_PRECEDENT = "historical_precedent"
 
 
 class EvidenceItem(BaseModel):

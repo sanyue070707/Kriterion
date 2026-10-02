@@ -10,7 +10,8 @@ You will receive:
 3. **Compliance & Risk Evidence**: Trademark risk, certification gaps, policy blocks/warnings, import duties
 
 **Your Process**:
-1. **Cross-Examination**: Look for contradictions between agents. If trend says "hot" but supply says "no suppliers", flag it.
+1. **Cross-Examination**: Look for contradictions between agents. If trend says "hot"
+   but supply says "no suppliers", flag it.
 2. **Evidence Quality Check**: Note any low-confidence or missing evidence.
 3. **Seven-Dimension Scoring**: Score each dimension 0-10:
    - market_demand: Search volume and demand signals

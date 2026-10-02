@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -80,18 +79,15 @@ class DecisionCard(BaseModel):
 
 
 # ── Structured Output Schema for LLM ──
-# This is used with `with_structured_output` to force the LLM to produce
-# a valid DecisionCard. We define a simplified version for the LLM to fill.
+# The numbers on a decision card are computed deterministically (scorer +
+# verdict). The model only renders the *narrative* around them, and is
+# constrained to this schema so its output can be validated. With a real model
+# this is used via `llm.with_structured_output(LLNarrativeOutput)`.
 
-class LLDecisionOutput(BaseModel):
-    """Schema for LLM structured output — the LLM fills this, then we build DecisionCard."""
+class LLNarrativeOutput(BaseModel):
+    """Narrative fields the LLM fills; the decision numbers are ignored here."""
 
-    verdict: Literal["go", "watch", "no_go"] = Field(description="Go / Watch / No-Go verdict")
-    verdict_reason: str = Field(description="One-sentence reason for the verdict")
-    scores: dict[str, float] = Field(
-        description="Score for each dimension (0-10): market_demand, competition, cost_margin, compliance_risk, supply_stability, trend_momentum, return_rate",
-    )
-    overall_score: float = Field(ge=0, le=10, description="Weighted overall score 0-10")
-    evidence_summary: dict = Field(default_factory=dict, description="Key evidence highlights grouped by agent")
-    risk_flags: dict = Field(default_factory=dict, description="Critical risks: {risk_name: severity}")
+    verdict_reason: str = Field(description="One-sentence, grounded reason for the verdict")
+    evidence_summary: dict = Field(default_factory=dict, description="Key evidence highlights")
     watch_reasons: dict = Field(default_factory=dict, description="If verdict=watch, what to watch for")
+    narrative: str = Field(default="", description="Short analyst narrative over the computed scores")

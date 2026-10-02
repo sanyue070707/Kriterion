@@ -1,12 +1,17 @@
-"""Seven-dimension scoring for decision review."""
+"""Seven-dimension scoring for decision review.
+
+Evidence is authored in fine-grained dimensions (see `EvidenceDimension`);
+`DIMENSION_EVIDENCE` maps those into the seven scoring dimensions, so each
+dimension is scored from the evidence that actually backs it.
+"""
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from decimal import Decimal
 
-from src.evidence.models import EvidenceDimension, EvidenceItem
-
+from src.evidence.models import EvidenceDimension as ED
+from src.evidence.models import EvidenceItem
 
 # Dimension weights (must sum to 1.0)
 DIMENSION_WEIGHTS: dict[str, float] = {
@@ -20,6 +25,35 @@ DIMENSION_WEIGHTS: dict[str, float] = {
 }
 
 ALL_DIMENSIONS = list(DIMENSION_WEIGHTS.keys())
+
+# Evidence dimension -> scoring dimension. Dimensions not listed here
+# (e.g. certification counts, policy references) inform the ledger but
+# deliberately do not move the score.
+DIMENSION_EVIDENCE: dict[str, list[ED]] = {
+    "market_demand": [ED.MARKET_DEMAND],
+    "competition": [ED.COMPETITION],
+    "cost_margin": [ED.NET_MARGIN, ED.GROSS_MARGIN],
+    "compliance_risk": [ED.COMPLIANCE_BLOCK, ED.COMPLIANCE_WARN, ED.TRADEMARK_RISK],
+    "supply_stability": [ED.SUPPLY_STABILITY],
+    "trend_momentum": [ED.TREND_MOMENTUM],
+    "return_rate": [ED.RETURN_RATE],
+}
+
+_DIMENSION_OF: dict[ED, str] = {
+    evidence_dim: score_dim
+    for score_dim, evidence_dims in DIMENSION_EVIDENCE.items()
+    for evidence_dim in evidence_dims
+}
+
+
+def bucket_evidence(items: list[EvidenceItem]) -> dict[str, list[EvidenceItem]]:
+    """Group evidence items into the seven scoring dimensions."""
+    buckets: dict[str, list[EvidenceItem]] = {dim: [] for dim in ALL_DIMENSIONS}
+    for item in items:
+        scoring_dim = _DIMENSION_OF.get(item.dimension)
+        if scoring_dim is not None:
+            buckets[scoring_dim].append(item)
+    return buckets
 
 
 @dataclass
@@ -37,88 +71,83 @@ class ScoreResult:
     scores_dict: dict[str, float]
 
 
-def score_dimension(
-    dimension: str,
-    evidence_items: list[EvidenceItem],
-) -> DimensionScore:
-    """Score a single dimension from its evidence items.
+def _clamp(value: float, low: float = 0.0, high: float = 10.0) -> float:
+    return min(high, max(low, value))
 
-    Uses a heuristic: weighted average of evidence values, mapped to 0-10.
-    For risk dimensions (compliance_risk), higher risk → lower score.
+
+def _values(evidence_items: list[EvidenceItem], dimension: ED | None = None) -> list[float]:
+    return [
+        float(i.value)
+        for i in evidence_items
+        if i.value is not None and (dimension is None or i.dimension == dimension)
+    ]
+
+
+def score_dimension(dimension: str, evidence_items: list[EvidenceItem]) -> DimensionScore:
+    """Score a single dimension from its evidence items (0-10).
+
+    Risk dimensions invert: more blocks / conflicts => lower score.
     """
     if not evidence_items:
-        return DimensionScore(
-            dimension=dimension,
-            score=5.0,  # neutral when no evidence
-            evidence_count=0,
-            confidence=0.0,
-        )
+        return DimensionScore(dimension, 5.0, 0, 0.0)  # neutral when no evidence
 
-    # Average confidence
     avg_confidence = float(sum(i.confidence for i in evidence_items) / len(evidence_items))
+    values = _values(evidence_items)
 
-    # Extract numeric values
-    values = [float(i.value) for i in evidence_items if i.value is not None]
     if not values:
-        # No numeric evidence — use confidence as proxy
-        return DimensionScore(
-            dimension=dimension,
-            score=avg_confidence * 10,
-            evidence_count=len(evidence_items),
-            confidence=avg_confidence,
-        )
+        # No numeric evidence — fall back to the confidence as a weak proxy.
+        return DimensionScore(dimension, round(avg_confidence * 10, 1), len(evidence_items), round(avg_confidence, 2))
 
-    # Score computation depends on dimension
     if dimension == "market_demand":
-        # Search volume → score (log scale, 10K→3, 100K→5, 1M→8, 10M→10)
-        import math
+        # Search volume → score (log scale: 10K→3, 1M→8)
         avg_val = sum(values) / len(values)
-        score = min(10.0, max(0.0, 2.0 + 1.5 * math.log10(max(avg_val, 1) / 10000)))
+        score = 2.0 + 1.5 * math.log10(max(avg_val, 1) / 10000)
 
     elif dimension == "competition":
-        # More sellers → lower score (inverse)
+        # More creator-sellers → lower score
         avg_val = sum(values) / len(values)
-        score = min(10.0, max(0.0, 10.0 - avg_val * 0.5))
+        score = 10.0 - avg_val * 0.5
 
     elif dimension == "cost_margin":
-        # Margin % → score (15%→5, 30%→7, 50%→9)
-        avg_val = sum(values) / len(values)
-        score = min(10.0, max(0.0, avg_val / 5.0))
+        # Prefer net margin when present; fall back to gross margin.
+        vals = _values(evidence_items, ED.NET_MARGIN) or _values(evidence_items, ED.GROSS_MARGIN) or values
+        avg_val = sum(vals) / len(vals)
+        score = avg_val / 5.0  # 15%→3, 30%→6, 45%→9
 
     elif dimension == "compliance_risk":
-        # Risk items count → inverse score (0 blocks → 10, 1 block → 3, 2+ → 1)
-        block_count = sum(1 for i in evidence_items if i.dimension == EvidenceDimension.COMPLIANCE_BLOCK)
-        if block_count >= 2:
+        blocks = max(_values(evidence_items, ED.COMPLIANCE_BLOCK), default=0.0)
+        trademark = max(_values(evidence_items, ED.TRADEMARK_RISK), default=0.0)
+        warn_count = len([v for v in _values(evidence_items, ED.COMPLIANCE_WARN) if v > 0])
+        if blocks >= 2:
             score = 1.0
-        elif block_count == 1:
+        elif blocks == 1:
             score = 3.0
         else:
-            warn_count = sum(1 for i in evidence_items if i.dimension == EvidenceDimension.COMPLIANCE_WARN)
-            score = max(4.0, 10.0 - warn_count * 1.5)
+            score = 10.0 - min(warn_count, 4) * 1.0 - (3.0 if trademark > 0 else 0.0)
+            score = max(2.0, score)
 
     elif dimension == "supply_stability":
-        # More suppliers → higher score
+        # Distinct supplier count → score (1→3.7, 5→6.5, 10→10)
         avg_val = sum(values) / len(values)
-        score = min(10.0, max(0.0, avg_val))
+        score = 3.0 + avg_val * 0.7
 
     elif dimension == "trend_momentum":
-        # Growth rate % → score (-15→1, 0→4, 20→7, 40→10)
+        # Growth rate % → score (-15→2, 0→4, 40→9)
         avg_val = sum(values) / len(values)
-        score = min(10.0, max(0.0, 4.0 + avg_val / 8.0))
+        score = 4.0 + avg_val / 8.0
 
     elif dimension == "return_rate":
-        # Return rate % → inverse score (5%→9, 10%→7, 20%→3)
+        # Return rate % → inverse score (5%→7.5, 20%→0)
         avg_val = sum(values) / len(values)
-        score = min(10.0, max(0.0, 10.0 - avg_val * 0.5))
+        score = 10.0 - avg_val * 0.5
 
     else:
-        # Generic: map average value to 0-10
         avg_val = sum(values) / len(values)
-        score = min(10.0, max(0.0, avg_val))
+        score = avg_val
 
     return DimensionScore(
         dimension=dimension,
-        score=round(score, 1),
+        score=round(_clamp(score), 1),
         evidence_count=len(evidence_items),
         confidence=round(avg_confidence, 2),
     )
@@ -127,7 +156,7 @@ def score_dimension(
 def score_all_dimensions(
     evidence_by_dimension: dict[str, list[EvidenceItem]],
 ) -> ScoreResult:
-    """Score all 7 dimensions and compute overall score."""
+    """Score all 7 dimensions and compute the weighted composite."""
     dimension_scores: list[DimensionScore] = []
     scores_dict: dict[str, float] = {}
 
@@ -137,7 +166,6 @@ def score_all_dimensions(
         dimension_scores.append(ds)
         scores_dict[dim] = ds.score
 
-    # Weighted composite
     overall = sum(scores_dict[d] * DIMENSION_WEIGHTS[d] for d in ALL_DIMENSIONS)
     overall = round(overall, 2)
 

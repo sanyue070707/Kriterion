@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
-from decimal import Decimal
 
 from langchain_core.tools import tool
 
 from src.db.connection import async_session_factory
 from src.db.repository import query_market_trends
+from src.tools.provenance import dataset_url
 
 
 @tool
@@ -23,9 +22,11 @@ async def search_trends(category: str, country: str, period: str = "last_6_month
         results_tiktok = await query_market_trends(session, category, "tiktok_shop", country, limit=6)
         results_shopee = await query_market_trends(session, category, "shopee", country, limit=6)
 
+    source_url = dataset_url("market_trends", category=category, country=country)
+
     all_results = results_tiktok + results_shopee
     if not all_results:
-        return {"found": False, "message": f"No trend data for {category} in {country}"}
+        return {"found": False, "message": f"No trend data for {category} in {country}", "source_url": source_url}
 
     # Aggregate
     volumes = [r.search_volume for r in all_results if r.search_volume]
@@ -41,6 +42,7 @@ async def search_trends(category: str, country: str, period: str = "last_6_month
         "avg_growth_rate_pct": round(avg_growth, 2),
         "trend_direction": "rising" if avg_growth > 10 else ("stable" if avg_growth > -5 else "declining"),
         "data_points": len(all_results),
+        "source_url": source_url,
         "fetch_time": datetime.now().isoformat(),
     }
 
@@ -51,8 +53,14 @@ async def get_category_growth(category: str, platform: str, country: str) -> dic
     async with async_session_factory() as session:
         results = await query_market_trends(session, category, platform, country, limit=12)
 
+    source_url = dataset_url("market_trends", category=category, platform=platform, country=country)
+
     if not results:
-        return {"found": False, "message": f"No growth data for {category} on {platform} in {country}"}
+        return {
+            "found": False,
+            "message": f"No growth data for {category} on {platform} in {country}",
+            "source_url": source_url,
+        }
 
     growths = [float(r.growth_rate_pct) for r in results if r.growth_rate_pct is not None]
     avg_growth = sum(growths) / len(growths) if growths else 0
@@ -73,6 +81,7 @@ async def get_category_growth(category: str, platform: str, country: str) -> dic
         "avg_growth_rate_pct": round(avg_growth, 2),
         "momentum": momentum,
         "months_available": len(results),
+        "source_url": source_url,
         "fetch_time": datetime.now().isoformat(),
     }
 
@@ -87,9 +96,11 @@ async def get_influencer_data(category: str, country: str) -> dict:
         results_tiktok = await query_market_trends(session, category, "tiktok_shop", country, limit=6)
         results_shopee = await query_market_trends(session, category, "shopee", country, limit=6)
 
+    source_url = dataset_url("market_trends", category=category, country=country)
+
     all_results = results_tiktok + results_shopee
     if not all_results:
-        return {"found": False, "message": f"No influencer data for {category} in {country}"}
+        return {"found": False, "message": f"No influencer data for {category} in {country}", "source_url": source_url}
 
     mentions = [r.influencer_mentions for r in all_results]
     sellers = [r.creator_sellers for r in all_results]
@@ -104,5 +115,6 @@ async def get_influencer_data(category: str, country: str) -> dict:
         "avg_creator_sellers": round(avg_sellers, 1),
         "max_influencer_mentions": max(mentions) if mentions else 0,
         "max_creator_sellers": max(sellers) if sellers else 0,
+        "source_url": source_url,
         "fetch_time": datetime.now().isoformat(),
     }

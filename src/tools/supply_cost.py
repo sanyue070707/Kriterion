@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
 
 from langchain_core.tools import tool
 
@@ -11,6 +10,7 @@ from src.config.platform_profiles import get_commission_rate, get_profile
 from src.db.connection import async_session_factory
 from src.db.repository import query_supplier_quotes
 from src.decision.unit_economics import calculate_unit_economics
+from src.tools.provenance import calc_url, dataset_url, profile_url
 
 
 @tool
@@ -22,8 +22,14 @@ async def get_supplier_quotes(category: str, source_country: str) -> dict:
     async with async_session_factory() as session:
         results = await query_supplier_quotes(session, category, source_country)
 
+    source_url = dataset_url("supplier_quotes", category=category, source_country=source_country)
+
     if not results:
-        return {"found": False, "message": f"No suppliers for {category} from {source_country}"}
+        return {
+            "found": False,
+            "message": f"No suppliers for {category} from {source_country}",
+            "source_url": source_url,
+        }
 
     quotes = []
     for r in results[:10]:  # Top 10
@@ -46,6 +52,7 @@ async def get_supplier_quotes(category: str, source_country: str) -> dict:
         "avg_price_usd": round(sum(prices) / len(prices), 2),
         "max_price_usd": round(max(prices), 2),
         "top_quotes": quotes,
+        "source_url": source_url,
         "fetch_time": datetime.now().isoformat(),
     }
 
@@ -87,6 +94,10 @@ async def calculate_freight(
         "rate_per_kg": rate_per_kg,
         "total_cost_usd": total,
         "transit_days": f"{min_days}-{max_days}",
+        "source_url": calc_url(
+            "freight", weight_kg=weight_kg, source_country=source_country,
+            target_country=target_country, mode=mode,
+        ),
         "fetch_time": datetime.now().isoformat(),
     }
 
@@ -104,6 +115,9 @@ async def get_platform_commission(platform: str, category: str) -> dict:
             "commission_pct": commission_pct,
             "payment_processing_pct": profile.payment_processing_pct,
             "creator_commission_range": f"{profile.creator_commission_min_pct}-{profile.creator_commission_max_pct}%",
+            "typical_return_rate_pct": profile.typical_return_rate_pct,
+            "max_return_rate_pct": profile.max_return_rate_pct,
+            "source_url": profile_url("platform_profiles", platform=platform, category=category),
             "fetch_time": datetime.now().isoformat(),
         }
     except (KeyError, ValueError) as e:
@@ -138,6 +152,9 @@ async def calculate_unit_economics_tool(
         )
         return {
             **ue.to_dict(),
+            "source_url": calc_url(
+                "unit_economics", platform=platform, category=category, retail_price_usd=retail_price_usd
+            ),
             "fetch_time": datetime.now().isoformat(),
         }
     except Exception as e:
